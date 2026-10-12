@@ -29,9 +29,41 @@ Double-click `Start.command`. Keep the Terminal window it opens running (you can
 - Files you delete are downloaded again on the next sync.
 - To change the download folder later: **Settings → Change**.
 
+## Using the terminal instead
+
+Needs Python 3.9 or newer (`python3 --version`) and Google Chrome.
+
+Setup, once:
+
+```bash
+git clone https://github.com/kikizoglu23/KU-LearnHub-Tracker.git
+cd KU-LearnHub-Tracker
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
+```
+
+Start the app (same browser UI as `Start.command`; stop with Ctrl+C):
+
+```bash
+.venv/bin/python app.py
+```
+
+Or skip the browser UI entirely:
+
+```bash
+.venv/bin/python learnhub.py login     # log in with KU NetID in the Chrome window that opens
+.venv/bin/python learnhub.py courses   # answer y/n for each course to track
+.venv/bin/python learnhub.py sync      # download new files and check assignments, once
+```
+
+- `sync` runs once and exits; there is no automatic 3-hour check without `app.py`.
+- Without the UI, files go to `~/Documents/Courses`. To use another folder, change `download_dir` in `~/Library/Application Support/Course_Tracking_System/config.json` (or use **Settings → Change** in the UI).
+- To update: `git pull`, then `.venv/bin/pip install -r requirements.txt`.
+
 ## For developers
 
-- `learnhub.py`: LearnHub client (only 5 allowed read functions, see `READ_ONLY`), file sync, assignment notifications, command line: `.venv/bin/python learnhub.py login | courses | sync`
+- `learnhub.py`: LearnHub client (only 5 allowed read functions, see `READ_ONLY`), file sync, assignment notifications, command line.
 - `app.py` + `ui.html`: local UI (`127.0.0.1` only, a new secret key on every start).
 - `Start.command`: creates `.venv`, installs `requirements.txt` when it changes, runs `app.py`.
 - Settings, download history and the login token: `~/Library/Application Support/Course_Tracking_System/` (the token file is readable only by your user).
