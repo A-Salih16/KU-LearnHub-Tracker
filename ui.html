@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LearnHub Tracker</title>
+<script>  // apply the chosen theme before the page is drawn (no flash on load)
+  try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  /* light-dark(light, dark): color-scheme decides which one is used. System = the Mac's setting. */
+  :root { color-scheme: light dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  :root {
+    --bg: light-dark(#fafafa, #09090b); --card: light-dark(#ffffff, #131316); --fg: light-dark(#18181b, #fafafa);
+    --muted: light-dark(#71717a, #a1a1aa); --border: light-dark(#e4e4e7, #27272a); --soft: light-dark(#f4f4f5, #1f1f23);
+    --accent: light-dark(#c8102e, #e5354f); --accent-fg: #ffffff;
+    --ring: light-dark(rgba(200, 16, 46, .35), rgba(229, 53, 79, .45));
+    --ok: light-dark(#15803d, #4ade80); --ok-bg: light-dark(#dcfce7, rgba(74, 222, 128, .12));
+    --warn: light-dark(#a16207, #fbbf24); --warn-bg: light-dark(#fef3c7, rgba(251, 191, 36, .12));
+    --danger: light-dark(#b91c1c, #f87171); --danger-bg: light-dark(#fee2e2, rgba(248, 113, 113, .12));
+    --shadow: 0 1px 2px light-dark(rgba(0, 0, 0, .04), transparent), 0 1px 3px light-dark(rgba(0, 0, 0, .06), transparent);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased;
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1, h2 { margin: 0; letter-spacing: -0.015em; }
+  h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
+  h2 { font-size: 15px; font-weight: 600; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  [hidden] { display: none !important; }
+
+  /* Top bar */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .logo { width: 36px; height: 36px; border-radius: 9px; background: var(--accent); color: var(--accent-fg);
+          display: grid; place-items: center; font-weight: 700; font-size: 12px; letter-spacing: .02em; flex: none; }
+  .actions { display: flex; align-items: center; gap: 10px; }
+
+  /* Buttons */
+  button { font: inherit; font-weight: 500; color: var(--fg); background: var(--card); border: 1px solid var(--border);
+           border-radius: 8px; padding: 7px 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+           transition: background .15s, border-color .15s, opacity .15s; }
+  button:hover:not(:disabled) { background: var(--soft); }
+  button:disabled { opacity: .55; cursor: default; }
+  button:focus-visible, summary:focus-visible, a:focus-visible, input:focus-visible {
+    outline: none; box-shadow: 0 0 0 3px var(--ring); border-radius: 8px; }
+  .primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+  .ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 6px 8px; }
+  .ghost:hover:not(:disabled) { color: var(--fg); }
+  svg { width: 15px; height: 15px; flex: none; }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+  /* Status badges */
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 10px;
+          border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.danger { background: var(--danger-bg); color: var(--danger); }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .02em; padding: 2px 7px;
+           border-radius: 6px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .card-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px;
+            border-bottom: 1px solid var(--border); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .top { flex-wrap: wrap; } }
+  .alert { border: 1px solid var(--danger); background: var(--danger-bg); color: var(--danger); border-radius: 10px;
+           padding: 10px 14px; margin-bottom: 16px; font-size: 15px; }
+
+  /* Lists */
+  .list { list-style: none; margin: 0; padding: 4px 0; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+  .list > li + li { border-top: 1px solid var(--border); }
+  .item .main { flex: 1; min-width: 0; }
+  .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.item { width: 100%; text-align: left; border: 0; border-radius: 0; background: transparent; font-weight: 400; }
+  button.item:hover:not(:disabled) { background: var(--soft); }
+  .code { display: inline-block; font-variant-numeric: tabular-nums; min-width: 72px; text-align: center; }
+  label.course .code { text-align: left; }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 15px; }
+
+  /* Settings */
+  details.card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+                           padding: 14px 16px; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::after { content: "›"; margin-left: auto; color: var(--muted); font-size: 19px; line-height: 1;
+                                  transition: transform .15s; }
+  details.card[open] > summary { border-bottom: 1px solid var(--border); }
+  details.card[open] > summary::after { transform: rotate(90deg); }
+  .block { padding: 14px 16px; }
+  .block + .block { border-top: 1px solid var(--border); }
+  .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+           margin-bottom: 6px; }
+  label.course { display: flex; align-items: center; gap: 12px; padding: 9px 0; cursor: pointer; }
+  label.course + label.course { border-top: 1px solid var(--border); }
+  label.course input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
+  label.course .main { flex: 1; min-width: 0; }
+  .tags { display: flex; gap: 6px; }
+  .folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .path { flex: 1 1 280px; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; background: var(--soft);
+          padding: 8px 10px; border-radius: 8px; word-break: break-all; }
+  .row-end { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+  /* Login */
+  .login { max-width: 420px; margin: 64px auto; padding: 28px; text-align: center; }
+  .login p { margin: 8px 0 20px; }
+
+  /* Footer */
+  footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 20px;
+           color: var(--muted); font-size: 12px; }
+  footer details { flex: 1; }
+  footer summary { cursor: pointer; padding: 6px 0; }
+  .log { margin: 6px 0 0; padding: 10px 12px; max-height: 220px; overflow: auto; background: var(--soft);
+         border-radius: 8px; font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: var(--bg);
+           padding: 9px 16px; border-radius: 10px; font-size: 15px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">LH</div>
+      <div style="min-width:0">
+        <h1>LearnHub Tracker</h1>
+        <div class="muted small" id="who">Loading…</div>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="actions" id="top-actions" hidden>
+        <span class="pill" id="pill" role="status"></span>
+        <button class="primary" id="sync">
+          <svg id="sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span id="sync-label">Sync now</span>
+        </button>
+      </div>
+      <button class="ghost" id="theme" title="Change theme"></button>
+    </div>
+  </header>
+
+  <div class="alert" id="error" role="alert" hidden></div>
+
+  <section class="card login" id="login-box" hidden>
+    <div class="logo" style="margin:0 auto 14px" aria-hidden="true">LH</div>
+    <h2 style="font-size:24px">Log in with KU NetID</h2>
+    <p class="muted">A Chrome window opens; log in there. It closes by itself when you are done, and your password never reaches this app.</p>
+    <button class="primary" id="login">Log in with KU NetID</button>
+  </section>
+
+  <div id="app" hidden>
+    <div class="grid">
+      <section class="card">
+        <div class="card-h"><h2>Upcoming assignments</h2><span class="badge warn" id="up-count" hidden></span></div>
+        <ul class="list" id="upcoming"></ul>
+      </section>
+      <section class="card">
+        <div class="card-h"><h2>Recent downloads</h2><button class="ghost small" id="open">Open folder</button></div>
+        <ul class="list" id="files"></ul>
+      </section>
+    </div>
+
+    <details class="card" id="settings">
+      <summary><h2>Settings</h2><span class="muted small" id="settings-sum"></span></summary>
+      <div class="block">
+        <div class="label">Tracked courses</div>
+        <div id="courses" class="muted">Loading courses…</div>
+        <div class="row-end"><button class="primary" id="save-courses" hidden>Save selection</button></div>
+      </div>
+      <div class="block">
+        <div class="label">Download folder</div>
+        <div class="folder"><span class="path" id="dir"></span><button id="pick">Change</button></div>
+      </div>
+    </details>
+  </div>
+
+  <footer id="footer" hidden>
+    <details><summary>Session log</summary><div class="log" id="recent"></div></details>
+    <button class="ghost small" id="quit">Quit app</button>
+  </footer>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const $ = id => document.getElementById(id);
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {'X-Key': K, 'Content-Type': 'application/json'},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), {status: r.status});
+  return j;
+}
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;  // textContent: text from the server is never parsed as HTML
+  if (cls) e.className = cls;
+  return e;
+}
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+// "ENGR411-Fall26-01-CE" + "ENGR411-Fall26-01-CE-ENTREPRENEURSHIP&NEW VENTURE D" → code, term, section, readable title
+const ROMAN = /^(I{1,3}|IV|VI{0,3}|IX|X)$/, SMALL = new Set(['and', 'of', 'to', 'the', 'in', 'for', 'on', 've']);
+function nice(s) {
+  return s.replace(/&/g, ' & ').replace(/\s+:/g, ':').replace(/\s+/g, ' ').trim().split(' ').map((w, i) =>
+    ROMAN.test(w.replace(/[:.,]$/, '')) ? w : i && SMALL.has(w.toLowerCase()) ? w.toLowerCase()
+      : w.charAt(0).toLocaleUpperCase('en') + w.slice(1).toLocaleLowerCase('en')).join(' ');
+}
+function course(short, full) {
+  const [code, term, sec] = short.split('-');
+  const title = full && full.startsWith(short + '-') ? nice(full.slice(short.length + 1)) : '';
+  return {code, term, sec, title};
+}
+const codeOf = short => short.split('-')[0];
+const calm = s => s === s.toUpperCase() ? nice(s) : s;  // "LECTURE SLIDES" → "Lecture Slides"
+
+const hm = ts => new Date(ts * 1000).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
+const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+function left(ts) {
+  const m = Math.max(0, Math.round((ts * 1000 - Date.now()) / 60000));
+  if (m < 60) return m + ' min left';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' h left';
+  return Math.floor(h / 24) + ' d' + (h % 24 ? ' ' + h % 24 + ' h' : '') + ' left';
+}
+
+let coursesLoaded = false;
+
+async function loadCourses() {
+  const box = $('courses');
+  coursesLoaded = true;  // don't load twice at the same time
+  try {
+    const list = await api('/api/courses');
+    box.textContent = ''; box.className = '';
+    if (!list.length) { box.textContent = 'No courses in progress.'; box.className = 'muted'; return; }
+    const count = {};
+    for (const c of list) { const t = c.short.split('-')[1]; count[t] = (count[t] || 0) + 1; }
+    const common = Object.keys(count).sort((a, b) => count[b] - count[a])[0];  // the current term: no tag shown
+    for (const c of list) {
+      const info = course(c.short, c.name);
+      const lab = el('label', undefined, 'course');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = c.tracked; cb.dataset.id = c.id; cb.dataset.short = c.short;
+      cb.onchange = () => { $('save-courses').hidden = false; };
+      const tags = el('div', undefined, 'tags');
+      if (info.sec && info.sec !== '01') tags.append(el('span', info.sec, 'badge'));
+      if (info.term && info.term !== common) tags.append(el('span', info.term, 'badge'));
+      if (c.dropped) tags.append(el('span', 'No longer enrolled', 'badge warn'));
+      const main = el('div', undefined, 'main');
+      main.append(el('div', info.title || c.short, 'title'));
+      lab.append(cb, el('b', info.code, 'code'), main, tags);
+      box.append(lab);
+    }
+  } catch (e) {
+    coursesLoaded = false;  // try again on the next refresh
+    box.textContent = 'Could not load courses: ' + e.message;
+    box.className = 'muted';
+  }
+}
+
+function renderUpcoming(list) {
+  const up = $('upcoming');
+  up.textContent = '';
+  const open = list.filter(a => !a.submitted).length;
+  $('up-count').textContent = open + ' to submit';
+  $('up-count').hidden = !open;
+  if (!list.length) return up.append(el('li', 'No upcoming assignments.', 'empty'));
+  for (const a of list) {
+    const hours = (a.due * 1000 - Date.now()) / 3.6e6;
+    const li = el('li', undefined, 'item');
+    const title = el('div', undefined, 'title');
+    if (a.url) {
+      const link = el('a', a.name);
+      link.href = a.url; link.target = '_blank'; link.rel = 'noopener';
+      title.append(link);
+    } else title.textContent = a.name;
+    const main = el('div', undefined, 'main');
+    main.append(title, el('div', 'Due ' + when(a.due), 'meta'));
+    const badge = a.submitted ? el('span', 'Submitted', 'badge ok')
+      : el('span', left(a.due), 'badge ' + (hours < 24 ? 'danger' : hours < 48 ? 'warn' : ''));
+    li.append(el('span', codeOf(a.course), 'badge code'), main, badge);
+    up.append(li);
+  }
+}
+
+function renderFiles(list) {
+  const box = $('files');
+  box.textContent = '';
+  if (!list.length) return box.append(el('li', 'No files downloaded yet.', 'empty'));
+  for (const f of list) {
+    const parts = f.path.split('/');
+    const b = el('button', undefined, 'item');
+    b.title = 'Show in Finder';
+    const main = el('div', undefined, 'main');
+    main.append(el('div', parts[parts.length - 1], 'title'),
+                el('div', [...parts.slice(1, -1).map(calm), when(f.at)].join(' · '), 'meta'));
+    b.append(el('span', codeOf(parts[0]), 'badge code'), main);
+    b.onclick = () => api('/api/reveal', {path: f.path}).catch(e => toast(e.message));
+    const li = el('li');
+    li.append(b);
+    box.append(li);
+  }
+}
+
+function renderStatus(s) {
+  const n = Object.keys(s.tracked).length;
+  const pill = $('pill');
+  pill.className = 'pill ' + (s.syncing ? 'warn' : s.error ? 'danger' : n && s.last_sync ? 'ok' : '');
+  pill.textContent = s.syncing ? 'Syncing' : s.error ? 'Problem' : !n ? 'No courses selected'
+    : s.last_sync ? 'Up to date · ' + hm(s.last_sync) : 'Not synced yet';
+  pill.title = s.next_sync ? 'Next automatic check: ' + hm(s.next_sync) : '';
+  $('sync').disabled = s.syncing || !n;
+  $('sync-label').textContent = s.syncing ? 'Syncing…' : 'Sync now';
+  $('sync-icon').classList.toggle('spin', s.syncing);
+  $('settings-sum').textContent = n + ' courses tracked · ' + s.download_dir.replace(/^\/Users\/[^/]+/, '~');
+  if (!n) $('settings').open = true;
+  $('dir').textContent = s.download_dir;
+}
+
+async function refresh() {
+  let s;
+  try { s = await api('/api/status'); }
+  catch (e) {  // no e.status: the server could not be reached at all
+    $('who').textContent = !e.status ? 'LearnHub is not running. Start it in the terminal with .venv/bin/python app.py.'
+      : e.status === 403 ? 'This tab is out of date; use the new address printed in the terminal.'
+      : 'Something went wrong: ' + e.message;
+    return;
+  }
+
+  const loggedIn = !!s.user;
+  const offline = !loggedIn && s.checked && s.has_token;  // there is a token but LearnHub can't be reached: don't ask to log in
+  $('who').textContent = loggedIn ? nice(s.user) : !s.checked ? 'Connecting…'
+    : offline ? 'Offline; it will continue by itself once the connection is back.' : 'Not logged in';
+  $('error').hidden = !s.error;
+  $('error').textContent = s.error || '';
+  $('login-box').hidden = loggedIn || !s.checked || offline;
+  $('login').disabled = s.logging_in;
+  $('login').textContent = s.logging_in ? 'Waiting for login in the Chrome window…' : 'Log in with KU NetID';
+  $('app').hidden = $('top-actions').hidden = !loggedIn;
+  $('footer').hidden = !s.checked;
+  $('recent').textContent = s.recent.length ? s.recent.join('\n') : 'Nothing has happened in this session yet.';
+  if (!loggedIn) return;
+  if (!coursesLoaded) loadCourses();
+  renderStatus(s);
+  renderUpcoming(s.upcoming);
+  renderFiles(s.files);
+}
+
+$('login').onclick = async () => { await api('/api/login', {}).catch(e => toast(e.message)); refresh(); };
+
+$('save-courses').onclick = async () => {
+  const courses = [...document.querySelectorAll('#courses input:checked')]
+    .map(cb => ({id: Number(cb.dataset.id), short: cb.dataset.short}));
+  $('save-courses').disabled = true;
+  try {
+    await api('/api/courses', {courses});
+    $('save-courses').hidden = true;
+    toast(courses.length + ' courses tracked · sync started');
+  } catch (e) { toast(e.message); }
+  $('save-courses').disabled = false;
+  refresh();
+};
+
+$('sync').onclick = async () => { await api('/api/sync', {}).catch(e => toast(e.message)); refresh(); };
+$('pick').onclick = async () => { await api('/api/folder', {}).catch(e => toast(e.message)); refresh(); };
+$('open').onclick = () => api('/api/open', {}).catch(e => toast(e.message));
+$('quit').onclick = async () => {
+  if (!confirm('Quit the app? Automatic checks will stop.')) return;
+  clearInterval(timer);
+  await api('/api/quit', {}).catch(() => {});
+  document.body.innerHTML = '<main><h1>LearnHub has quit</h1><p class="muted">You can close this tab.</p></main>';
+};
+
+// Theme: System → Light → Dark. The choice is remembered in this browser.
+const THEMES = [['', '◐ System'], ['light', '☀︎ Light'], ['dark', '☾ Dark']];
+function showTheme() {
+  const t = document.documentElement.dataset.theme || '';
+  const label = THEMES.find(([v]) => v === t)[1];
+  $('theme').textContent = label;
+  $('theme').setAttribute('aria-label', 'Theme: ' + label.split(' ')[1] + '. Click to change');
+}
+$('theme').onclick = () => {
+  const i = THEMES.findIndex(([v]) => v === (document.documentElement.dataset.theme || ''));
+  const next = THEMES[(i + 1) % THEMES.length][0];
+  if (next) document.documentElement.dataset.theme = next; else delete document.documentElement.dataset.theme;
+  try { next ? localStorage.setItem('theme', next) : localStorage.removeItem('theme'); } catch (e) {}
+  showTheme();
+};
+showTheme();
+
+refresh();
+const timer = setInterval(refresh, 2000);
+</script>
+</body>
+</html>
