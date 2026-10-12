@@ -19,6 +19,7 @@ PORT = 47653
 SYNC_EVERY = 3 * 3600
 UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.html")
 KEY = secrets.token_urlsafe(24)  # the UI's secret key; new on every start
+URL_FILE = os.path.join(lh.DATA_DIR, "ui_url")  # lets a second start reopen the running instance's page
 
 # has_token: if there is a token but LearnHub can't be reached, the UI shows "offline" instead of the login box.
 status = {"checked": False, "user": None, "has_token": False, "syncing": False, "logging_in": False,
@@ -231,7 +232,19 @@ def main():
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError:
-        sys.exit(f"LearnHub is already running (port {PORT}); use the address in the terminal where it runs.")
+        # Already running (Start.command clicked again): reopen its page instead of failing.
+        try:
+            with open(URL_FILE) as f:
+                url = f.read()
+        except OSError:
+            sys.exit(f"Port {PORT} is in use; use the address in the terminal where LearnHub runs.")
+        print(f"LearnHub is already running; opening it: {url}")
+        webbrowser.open(url)
+        return
+    os.makedirs(lh.DATA_DIR, exist_ok=True)
+    # 0600 like the token: the URL holds the UI key, only this user may read it.
+    with os.fdopen(os.open(URL_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        f.write(ui_url())
     start(auto_sync)
     print(f"LearnHub UI: {ui_url()}\nTo stop: click Quit on the page, or press Ctrl+C.", flush=True)
     webbrowser.open(ui_url())
