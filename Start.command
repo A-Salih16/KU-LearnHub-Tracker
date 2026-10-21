@@ -9,7 +9,9 @@ if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv || fail "Python 3 is needed: if macOS offers to install developer tools, accept, then run this again."
 fi
 if [ requirements.txt -nt .venv/.installed ]; then
-  { .venv/bin/pip install -q --upgrade pip && .venv/bin/pip install -q -r requirements.txt && touch .venv/.installed; } \
+  # ensurepip: a .venv made by uv/virtualenv has no pip of its own.
+  { .venv/bin/python -m ensurepip >/dev/null && .venv/bin/python -m pip install -q --upgrade pip \
+    && .venv/bin/python -m pip install -q -r requirements.txt && touch .venv/.installed; } \
     || fail "Install failed: check the internet connection, then run this again."
 fi
 
