@@ -50,6 +50,7 @@ def run():
                     assert request('/')[0] == 403
                     code, headers, body = request('/?k=test-only')
                     assert code == 200 and b'Course tasks' in body and b'LEARNHUB_CONFIG' in body
+                    assert int(headers['Content-Length']) == len(body)
                     cookie = headers['Set-Cookie'].split(';')[0]
                     assert all(flag in headers['Set-Cookie'] for flag in ('HttpOnly', 'SameSite=Lax', 'Max-Age='))
                     assert request('/', headers={'Cookie': cookie})[0] == 200
