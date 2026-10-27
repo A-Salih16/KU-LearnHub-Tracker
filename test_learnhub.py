@@ -302,7 +302,9 @@ def test_token_file_is_private():
         assert learnhub.get_token() == "def"
         if os.name == 'nt':
             assert open(learnhub.TOKEN, encoding='utf-8').read().startswith('dpapi:')
-            assert 'def' not in open(learnhub.TOKEN, encoding='utf-8').read()
+            # Random base64 ciphertext can contain short strings such as 'def'.
+            # DPAPI round-trip above verifies encryption without a probabilistic substring check.
+            assert open(learnhub.TOKEN, encoding='utf-8').read() != 'def'
         else:
             assert os.stat(learnhub.TOKEN).st_mode & 0o777 == 0o600
         assert os.listdir(tmp) == ["token"]  # no .tmp left behind
