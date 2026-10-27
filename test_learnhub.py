@@ -93,9 +93,17 @@ def test_assignment_notifications():
         state = {"assignments": {}}
         learnhub.sync_assignments({"courses": {"9": "X"}}, state)
         assert sent == ["New assignment:New", "New assignment:Urgent", "Due soon:Urgent", "New assignment:Done"], sent
+        assert {a['name'] for a in state['upcoming']} == {'Old', 'New', 'Urgent', 'Done'}
+        assert state['assessments'][0]['name'] == 'Exam'
+        # Undated submissions remain visible without a fabricated deadline.
+        assigns.append({'id': 6, 'name': 'Undated', 'duedate': 0})
         sent.clear()
         learnhub.sync_assignments({"courses": {"9": "X"}}, state)
-        assert sent == [], "the same notification was sent again"
+        assert sent == ['New assignment:Undated'], sent
+        assert next(a for a in state['upcoming'] if a['name'] == 'Undated')['due'] == 0
+        sent.clear()
+        learnhub.sync_assignments({'courses': {'9': 'X'}}, state)
+        assert sent == [], 'the same notification was sent again'
     finally:
         learnhub.call, learnhub.notify = old_call, old_notify
 
@@ -292,7 +300,11 @@ def test_token_file_is_private():
         learnhub.save_token("abc")
         learnhub.save_token("def")  # logging in again replaces the old one
         assert learnhub.get_token() == "def"
-        assert os.stat(learnhub.TOKEN).st_mode & 0o777 == 0o600  # other users can't read it
+        if os.name == 'nt':
+            assert open(learnhub.TOKEN, encoding='utf-8').read().startswith('dpapi:')
+            assert 'def' not in open(learnhub.TOKEN, encoding='utf-8').read()
+        else:
+            assert os.stat(learnhub.TOKEN).st_mode & 0o777 == 0o600
         assert os.listdir(tmp) == ["token"]  # no .tmp left behind
 
 

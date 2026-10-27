@@ -86,7 +86,7 @@ def test_reveal_stays_inside_download_dir():
         old = lh.load_config, app.subprocess.run
         lh.load_config, app.subprocess.run = (lambda: {"download_dir": tmp, "courses": {}}), opened.append
         try:
-            assert app.reveal("Course/a.pdf") and opened[-1][-1].endswith("Course/a.pdf")
+            assert app.reveal("Course/a.pdf") and opened[-1][-1].endswith(os.path.join("Course", "a.pdf"))
             assert not app.reveal("../../etc/passwd") and not app.reveal("/etc/passwd")  # outside the folder
             assert not app.reveal("Course/missing.pdf") and len(opened) == 1
         finally:
@@ -114,14 +114,18 @@ def test_sync_requested_during_sync_runs_once_more():
 
 def test_pick_folder_adds_courses():
     old = app.subprocess.run
+    old_platform = app.sys.platform
+    app.sys.platform = "darwin"  # the upstream macOS chooser branch
     try:
         for out, code, want in [("/Users/a/Desktop/\n", 0, "/Users/a/Desktop/Courses"),
                                 ("/Users/a/Courses/\n", 0, "/Users/a/Courses"),  # no Courses/Courses
                                 ("", 1, None)]:  # Cancel
             app.subprocess.run = lambda *a, **kw: types.SimpleNamespace(stdout=out, returncode=code)
-            assert app.pick_folder() == want, (out, app.pick_folder())
+            got = app.pick_folder()
+            assert (got.replace('\\', '/') if got else None) == want, (out, got)
     finally:
         app.subprocess.run = old
+        app.sys.platform = old_platform
 
 
 if __name__ == "__main__":

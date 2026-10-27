@@ -14,9 +14,12 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import sync_coverage
 
 SITE = "https://learn.hub.ku.edu.tr"
-DATA_DIR = os.path.expanduser("~/Library/Application Support/Course_Tracking_System")
+# Preserve the existing macOS data location. Windows uses the current user's profile.
+DATA_DIR = (os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "LearnHubTracker")
+            if sys.platform == "win32" else os.path.expanduser("~/Library/Application Support/Course_Tracking_System"))
 CONFIG = os.path.join(DATA_DIR, "config.json")
 STATE = os.path.join(DATA_DIR, "state.json")
 TOKEN = os.path.join(DATA_DIR, "token")  # not the Keychain: it kept showing permission prompts
@@ -72,6 +75,9 @@ def get_token():
     try:
         with open(TOKEN, encoding="utf-8") as f:
             token = f.read().strip()
+            if token.startswith("dpapi:"):
+                from windows_support import unprotect
+                token = unprotect(token[6:])
     except FileNotFoundError:
         token = ""
     if not token:
@@ -81,6 +87,9 @@ def get_token():
 
 def save_token(token):
     os.makedirs(DATA_DIR, exist_ok=True)
+    if sys.platform == "win32":
+        from windows_support import protect
+        token = "dpapi:" + protect(token)
     # 0600: only this user can read the file; it is created with this mode, so it is never briefly open to others.
     with os.fdopen(os.open(TOKEN + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         f.write(token)
@@ -148,7 +157,7 @@ def save_json(path, data):
 
 
 def load_config():
-    return load_json(CONFIG, {"download_dir": "~/Documents/Courses", "courses": {}})
+    return load_json(CONFIG, {"download_dir": os.path.expanduser("~/Documents/Courses"), "courses": {}})
 
 
 def courses():
@@ -172,7 +181,9 @@ def courses():
 def safe_name(name):
     """Turns a name from the server into one safe file/folder name: no ../ or / (":" shows up as "/" in
     Finder, so it is replaced too); long names are cut to MAX_NAME bytes, keeping the extension."""
-    name = re.sub(r"[\x00-\x1f/:]", "-", html.unescape(name).strip())
+    name = re.sub(r'[\x00-\x1f/\\:*?"<>|]', "-", html.unescape(name).strip())
+    if name not in (".", ".."): name = name.rstrip(". ")
+    if re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", name): name = "_" + name
     if len(name.encode()) > MAX_NAME:
         stem, ext = os.path.splitext(name)
         if len(ext) > 10:  # in names like "1. Week - Intro" the part after the dot is not an extension
@@ -232,12 +243,15 @@ def download(fileurl, filesize=0):
 
 
 def log(msg):
+    msg = re.sub(r"(?i)((?:ws)?token=)[^\s&]+", r"\1[redacted]", str(msg))
     print(msg, flush=True)
     RECENT.appendleft(f"{time.strftime('%d.%m %H:%M')}  {msg}")
 
 
 def notify(title, message):
     log(f"[{title}] {message}")
+    if sys.platform == "win32":
+        return  # Notifications appear in the Study Hub's sync activity; no macOS commands on Windows.
     # The text is passed as argv, not embedded in the script: no quoting/escaping problems.
     subprocess.run(["osascript", "-e", "on run argv", "-e",
                     "display notification (item 2 of argv) with title (item 1 of argv)",
@@ -264,19 +278,41 @@ def save_state(state):
     save_json(STATE, state)
 
 
+def course_activities(short, sections):
+    """Visible quiz/survey and Turnitin metadata only; never opens questions or starts attempts."""
+    activities=[]
+    for section in sections:
+        for mod in section.get('modules', []):
+            kind=mod.get('modname')
+            if kind not in ('quiz','questionnaire','feedback','survey','turnitintooltwo') or mod.get('uservisible') is False:
+                continue
+            dates={d.get('dataid'):d.get('timestamp',0) for d in (mod.get('dates') or [])}
+            activities.append({'id':mod['id'],'course':short,'name':html.unescape(mod['name']),
+                               'due':dates.get('duedate') or dates.get('timeclose',0),'url':mod.get('url'),
+                               'activity_type':kind,'submission_known':False})
+    return activities
+
+
 def sync_files(cfg, state):
     """Downloads new files. Returns the first error the user has to fix (no permission, disk full)."""
     root = os.path.expanduser(cfg["download_dir"])
     blocking = None
+    state['activities']=[a for a in state.get('activities',[]) if a['course'] in cfg['courses'].values()]
     for cid, short in cfg["courses"].items():
         new = []
         try:
             sections = call("core_course_get_contents", courseid=int(cid))
         except RuntimeError as e:  # course hidden / dropped: keep going with the other courses
-            log(f"[skipped] {short}: not accessible ({e})")
+            log(f"[skipped] {short}: not accessible ({type(e).__name__})")
+            state.setdefault('coverage', {}).setdefault(short, {})['error'] = 'Course contents could not be checked.'
+            state.setdefault('sync_errors', []).append(short + ': course contents could not be checked')
             continue
+        sync_coverage.capture(short, sections, state, root, file_key)
+        state['activities']=[a for a in state['activities'] if a['course']!=short]+course_activities(short,sections)
         for section in sections:
             for mod in section["modules"]:
+                if mod.get('uservisible') is False:
+                    continue
                 for f in mod.get("contents", []):
                     if f["type"] != "file":
                         continue
@@ -301,9 +337,10 @@ def sync_files(cfg, state):
                     except TokenError:
                         raise
                     except Exception as e:  # 404, permission, disk full, incomplete...: other files continue
-                        log(f"[error] {short}: {f['filename']} not downloaded ({type(e).__name__}: {e})")
+                        log(f"[error] {short}: {f['filename']} not downloaded ({type(e).__name__})")
                         if getattr(e, "errno", None) in (errno.EPERM, errno.EACCES, errno.ENOSPC):
                             blocking = blocking or e
+                        state.setdefault('sync_errors', []).append(short + ': ' + f['filename'] + ' was not downloaded')
                         continue
                     state["files"][key] = {"timemodified": f["timemodified"],
                                            "path": os.path.relpath(path, root), "at": int(time.time())}
@@ -324,11 +361,13 @@ def is_submitted(assign_id):
 def sync_assignments(cfg, state):
     now = time.time()
     upcoming = []
+    assessments = []
     courses = call("mod_assign_get_assignments", courseids=[int(c) for c in cfg["courses"]])["courses"]
     for course in courses:
         short = cfg["courses"].get(str(course["id"]), course["shortname"])
         for a in course["assignments"]:
-            if a.get("nosubmissions"):  # a grade item without submissions (exam, participation)
+            if a.get("nosubmissions"):  # Keep assessment metadata, never treat it as a submission.
+                assessments.append({'course':short,'id':a.get('cmid'),'name':html.unescape(a['name']),'due':a.get('duedate',0),'url':f"{SITE}/course/view.php?id={course['id']}"})
                 continue
             seen = state["assignments"].setdefault(str(a["id"]), {"notified_new": False, "notified_due": False})
             due = a["duedate"]
@@ -338,15 +377,14 @@ def sync_assignments(cfg, state):
                 seen["notified_new"] = True
                 if not due or due > now:  # no notification for old assignments that are already past due
                     notify(f"New assignment: {short}", f"{name} (due: {due_text})")
-            if due <= now:
-                continue
             submitted = is_submitted(a["id"])
             upcoming.append({"course": short, "name": name, "due": due, "submitted": submitted,
                              "url": f"{SITE}/mod/assign/view.php?id={a['cmid']}" if a.get("cmid") else None})
-            if due - now < DUE_SOON and not seen["notified_due"] and not submitted:
+            if 0 < due - now < DUE_SOON and not seen["notified_due"] and not submitted:
                 seen["notified_due"] = True
                 notify(f"Due soon: {short}", f"{name} is not submitted! Due: {due_text}")
-    state["upcoming"] = sorted(upcoming, key=lambda u: u["due"])
+    state["upcoming"] = sorted(upcoming, key=lambda u: u["due"] or float("inf"))
+    state["assessments"] = assessments
 
 
 def sync_once():
@@ -354,19 +392,29 @@ def sync_once():
     if not cfg["courses"]:  # with an empty list Moodle returns the assignments of ALL courses
         return False
     state = load_state()
+    state['last_sync_attempt'] = int(time.time())
+    state['sync_errors'] = []
     try:
         blocking = sync_files(cfg, state)
         sync_assignments(cfg, state)
+        state['assignments_checked_at'] = int(time.time())
+        if not state['sync_errors'] and not blocking:
+            state['last_successful_sync'] = int(time.time())
+    except Exception as exc:
+        state['sync_errors'].append('Check failed (' + type(exc).__name__ + '). Sync again.')
+        raise
     finally:  # even if the assignment pass fails halfway, save the sent notifications so they don't repeat
         save_state(state)
     if blocking:  # no permission / disk full: the rest of the work is done, but the error still reaches the user
         raise blocking
-    return True
+    return not state['sync_errors']
 
 
 def sync():
-    if not sync_once():
+    if not load_config()["courses"]:
         sys.exit("No tracked courses: run `learnhub.py courses` first.")
+    if not sync_once():
+        sys.exit("Sync partly completed. Check the log and try again.")
 
 
 def main():

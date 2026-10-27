@@ -129,6 +129,21 @@
          border-radius: 8px; font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: var(--bg);
            padding: 9px 16px; border-radius: 10px; font-size: 15px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  .section { margin-bottom: 20px; }
+  .filters { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  .filters label { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+  .search-label { flex:1; min-width:180px; }
+  select,input[type=search] { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--border); border-radius:8px; padding:9px; }
+  .hint { color:var(--muted); font-size:12px; margin:12px 16px; }
+  .course-group + .course-group { border-top:1px solid var(--border); }
+  .course-group > summary { cursor:pointer; padding:14px 16px; font-weight:650; overflow-wrap:anywhere; }
+  .course-group h3 { margin:12px 16px 2px; font-size:14px; }
+  .task-title { font-weight:500; overflow-wrap:anywhere; }
+  .task-row { border-bottom:1px solid var(--border); }
+  .task-row:last-child { border-bottom:0; }
+  .due-soon { color:var(--danger); font-weight:600; }
+  .small { overflow-wrap:anywhere; }
+  @media(max-width:480px) { .task-row { flex-wrap:wrap; } .task-row .main { min-width:100%; } }
 </style>
 </head>
 <body>
@@ -163,16 +178,20 @@
   </section>
 
   <div id="app" hidden>
-    <div class="grid">
-      <section class="card">
-        <div class="card-h"><h2>Upcoming assignments</h2><span class="badge warn" id="up-count" hidden></span></div>
-        <ul class="list" id="upcoming"></ul>
-      </section>
-      <section class="card">
-        <div class="card-h"><h2>Recent downloads</h2><button class="ghost small" id="open">Open folder</button></div>
-        <ul class="list" id="files"></ul>
-      </section>
+    <div class="filters">
+      <label>Course <select id="course-filter" aria-label="Course"><option value="">All courses</option></select></label>
+      <label>Show <select id="task-filter" aria-label="Show"><option value="pending">To do</option><option value="all">All tasks</option><option value="done">Completed</option></select></label>
+      <label class="search-label">Find material <input id="file-search" type="search" placeholder="Filename or folder"></label>
     </div>
+    <section class="card section">
+      <div class="card-h"><h2>Course tasks</h2><span class="badge" id="up-count"></span></div>
+      <p class="hint">Ticks are your personal record and do not submit work to LearnHub. Dates come from LearnHub; practice files have no inferred deadline.</p>
+      <div id="upcoming"></div>
+    </section>
+    <section class="card section">
+      <div class="card-h"><h2>Course materials</h2><button class="ghost small" id="open">Open folder</button></div>
+      <div id="files"></div>
+    </section>
 
     <details class="card" id="settings">
       <summary><h2>Settings</h2><span class="muted small" id="settings-sum"></span></summary>
@@ -180,6 +199,9 @@
         <div class="label">Tracked courses</div>
         <div id="courses" class="muted">Loading courses…</div>
         <div class="row-end"><button class="primary" id="save-courses" hidden>Save selection</button></div>
+      </div>
+      <div class="block">
+        <details><summary>Sync coverage</summary><div id="coverage" class="small"></div></details>
       </div>
       <div class="block">
         <div class="label">Download folder</div>
@@ -196,7 +218,11 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
-const K = new URLSearchParams(location.search).get('k');
+const K = window.LEARNHUB_CONFIG.key;
+if (new URLSearchParams(location.search).has('k')) {
+  const clean = new URL(location.href); clean.searchParams.delete('k');
+  history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+}
 const $ = id => document.getElementById(id);
 
 async function api(path, body) {
@@ -242,6 +268,8 @@ const calm = s => s === s.toUpperCase() ? nice(s) : s;  // "LECTURE SLIDES" → 
 const hm = ts => new Date(ts * 1000).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
 function left(ts) {
+  if (!ts) return 'No due date';
+  if (ts * 1000 < Date.now()) return 'Past due';
   const m = Math.max(0, Math.round((ts * 1000 - Date.now()) / 60000));
   if (m < 60) return m + ' min left';
   const h = Math.floor(m / 60);
@@ -283,49 +311,99 @@ async function loadCourses() {
   }
 }
 
-function renderUpcoming(list) {
-  const up = $('upcoming');
-  up.textContent = '';
-  const open = list.filter(a => !a.submitted).length;
-  $('up-count').textContent = open + ' to submit';
-  $('up-count').hidden = !open;
-  if (!list.length) return up.append(el('li', 'No upcoming assignments.', 'empty'));
-  for (const a of list) {
-    const hours = (a.due * 1000 - Date.now()) / 3.6e6;
-    const li = el('li', undefined, 'item');
-    const title = el('div', undefined, 'title');
-    if (a.url) {
-      const link = el('a', a.name);
-      link.href = a.url; link.target = '_blank'; link.rel = 'noopener';
-      title.append(link);
-    } else title.textContent = a.name;
-    const main = el('div', undefined, 'main');
-    main.append(title, el('div', 'Due ' + when(a.due), 'meta'));
-    const badge = a.submitted ? el('span', 'Submitted', 'badge ok')
-      : el('span', left(a.due), 'badge ' + (hours < 24 ? 'danger' : hours < 48 ? 'warn' : ''));
-    li.append(el('span', codeOf(a.course), 'badge code'), main, badge);
-    up.append(li);
-  }
+let tasks = [], materials = [], courseNames = [], dataSignature = '', coverageSignature = '';
+const openTasks = new Set(), openMaterials = new Set();
+function group(parent, name, count, opened) {
+  const detail = el('details', undefined, 'course-group');
+  detail.open = opened.has(name);
+  const summary = el('summary', name + ' · ' + count);
+  detail.append(summary); parent.append(detail);
+  detail.addEventListener('toggle', () => detail.open ? opened.add(name) : opened.delete(name));
+  return detail;
 }
-
-function renderFiles(list) {
-  const box = $('files');
-  box.textContent = '';
-  if (!list.length) return box.append(el('li', 'No files downloaded yet.', 'empty'));
-  for (const f of list) {
-    const parts = f.path.split('/');
-    const b = el('button', undefined, 'item');
-    b.title = 'Show in Finder';
-    const main = el('div', undefined, 'main');
-    main.append(el('div', parts[parts.length - 1], 'title'),
-                el('div', [...parts.slice(1, -1).map(calm), when(f.at)].join(' · '), 'meta'));
-    b.append(el('span', codeOf(parts[0]), 'badge code'), main);
-    b.onclick = () => api('/api/reveal', {path: f.path}).catch(e => toast(e.message));
-    const li = el('li');
-    li.append(b);
-    box.append(li);
-  }
+function matchesTask(t) {
+  const selected = $('task-filter').value;
+  const done = t.official_submitted || t.personal_done;
+  return selected === 'all' || (selected === 'done' ? done : !done);
 }
+function renderUpcoming() {
+  const box = $('upcoming'); box.textContent = '';
+  const selected = $('course-filter').value;
+  const visible = tasks.filter(t => (!selected || t.course === selected) && matchesTask(t));
+  $('up-count').textContent = visible.length + ' shown';
+  for (const name of courseNames.filter(c => !selected || c === selected)) {
+    const list = visible.filter(t => t.course === name);
+    const detail = group(box, name, list.length, openTasks);
+    if (selected) detail.open = true;
+    if (!list.length) detail.append(el('p', 'No tasks in this view.', 'empty'));
+    for (const kind of ['Assignments', 'Quizzes & surveys', 'Problem sets & labs', 'Other assessments']) {
+      const items = list.filter(t => t.kind === kind);
+      if (!items.length) continue;
+      detail.append(el('h3', kind));
+      for (const t of items) {
+        const row = el('div', undefined, 'item task-row');
+        const main = el('div', undefined, 'main');
+        const link = el(t.url ? 'a' : 'span', t.name, 'task-title');
+        if (t.url) { link.href = t.url; link.target = '_blank'; link.rel = 'noopener'; }
+        main.append(link);
+        const date = t.due ? when(t.due) + ' · ' + left(t.due) : 'No due date';
+        const urgent = t.due && !t.personal_done && !t.official_submitted && t.due * 1000 - Date.now() < 48 * 3600000;
+        main.append(el('div', date, 'small ' + (urgent ? 'due-soon' : 'muted')));
+        if (!t.status_known && kind !== 'Problem sets & labs') main.append(el('div', 'LearnHub completion not available', 'small muted'));
+        const tick = el('button', t.official_submitted ? '✓ Submitted on LearnHub' : t.personal_done ? '✓ Done' : 'Mark done');
+        tick.disabled = t.official_submitted;
+        tick.setAttribute('aria-pressed', String(t.official_submitted || t.personal_done));
+        tick.setAttribute('aria-label', (t.personal_done ? 'Undo completion: ' : 'Mark done: ') + t.name);
+        tick.title = 'Personal record only';
+        tick.onclick = async () => {
+          tick.disabled = true;
+          try {
+            await api('/api/tasks', {id:t.id, done:!t.personal_done});
+            t.personal_done = !t.personal_done; dataSignature = ''; renderUpcoming();
+          } catch (e) { tick.disabled = false; toast(e.message); }
+        };
+        row.append(main, tick); detail.append(row);
+      }
+    }
+  }
+  if (!courseNames.length) box.append(el('p', 'Choose courses in Settings to begin.', 'empty'));
+}
+function renderFiles() {
+  const box = $('files'); box.textContent = '';
+  const selected = $('course-filter').value, query = $('file-search').value.trim().toLocaleLowerCase();
+  const list = materials.filter(f => (!selected || f.course === selected) && f.path.toLocaleLowerCase().includes(query));
+  const names = [...new Set(list.map(f => f.course))].sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+  for (const name of names) {
+    const items = list.filter(f => f.course === name);
+    const detail = group(box, name, items.length, openMaterials);
+    if (selected || query) detail.open = true;
+    for (const category of [...new Set(items.map(f => f.category))].sort()) {
+      detail.append(el('h3', category));
+      for (const f of items.filter(f => f.category === category).sort((a,b) => a.path.localeCompare(b.path, undefined, {numeric:true}))) {
+        const row = el('div', undefined, 'item');
+        const main = el('div', undefined, 'main');
+        const link = el('a', f.name, 'task-title');
+        link.href = '/api/resource?path=' + encodeURIComponent(f.path); link.target = '_blank'; link.rel = 'noopener';
+        main.append(link, el('div', f.section + (f.current === false ? ' · Saved from an earlier sync' : ''), 'small muted'));
+        row.append(main); detail.append(row);
+      }
+    }
+  }
+  if (!list.length) box.append(el('p', 'No matching materials.', 'empty'));
+}
+function renderCoverage(s) {
+  const signature = JSON.stringify(s.coverage);
+  if (signature === coverageSignature) return;
+  coverageSignature = signature;
+  const box = $('coverage'); box.textContent = '';
+  box.append(el('p', 'Last successful sync: ' + (s.last_sync ? when(s.last_sync) : 'Not yet')));
+  for (const c of s.coverage.courses) box.append(el('p', c.course + ' · ' + (c.checked_at ? c.available + '/' + c.expected + ' files available' : 'Not checked yet') + (c.error ? ' · ' + c.error : '')));
+  for (const error of s.coverage.errors) box.append(el('p', error, 'due-soon'));
+  box.append(el('p', 'Forum posts, external tools, quiz attempts and Turnitin submission details are not covered. Use official LearnHub for the full activity list.'));
+}
+$('course-filter').onchange = () => { renderUpcoming(); renderFiles(); };
+$('task-filter').onchange = renderUpcoming;
+$('file-search').oninput = renderFiles;
 
 function renderStatus(s) {
   const n = Object.keys(s.tracked).length;
@@ -342,12 +420,18 @@ function renderStatus(s) {
   $('dir').textContent = s.download_dir;
 }
 
+let refreshing = false;
 async function refresh() {
+  if (document.hidden || refreshing) return;
+  refreshing = true;
+  try { await refreshData(); } finally { refreshing = false; }
+}
+async function refreshData() {
   let s;
   try { s = await api('/api/status'); }
   catch (e) {  // no e.status: the server could not be reached at all
-    $('who').textContent = !e.status ? 'LearnHub is not running. Start it in the terminal with .venv/bin/python app.py.'
-      : e.status === 403 ? 'This tab is out of date; use the new address printed in the terminal.'
+    $('who').textContent = !e.status ? 'LearnHub is not running. Reopen Start.command or Start-Windows.cmd.'
+      : e.status === 403 ? 'Reconnect this browser using the page opened by the launcher.'
       : 'Something went wrong: ' + e.message;
     return;
   }
@@ -367,8 +451,21 @@ async function refresh() {
   if (!loggedIn) return;
   if (!coursesLoaded) loadCourses();
   renderStatus(s);
-  renderUpcoming(s.upcoming);
-  renderFiles(s.files);
+  renderCoverage(s);
+  try {
+    const [taskData, fileData] = await Promise.all([api('/api/tasks'), api('/api/resources')]);
+    const signature = JSON.stringify([taskData, fileData]);
+    if (signature !== dataSignature) {
+      dataSignature = signature; tasks = taskData.tasks; materials = fileData.resources;
+      const previous = $('course-filter').value;
+      courseNames = taskData.courses;
+      $('course-filter').textContent = '';
+      const all = el('option', 'All courses'); all.value = ''; $('course-filter').append(all);
+      for (const name of courseNames) { const option = el('option', name); option.value = name; $('course-filter').append(option); }
+      if (courseNames.includes(previous)) $('course-filter').value = previous;
+      renderUpcoming(); renderFiles();
+    }
+  } catch (e) { toast('Could not refresh tasks and materials: ' + e.message); }
 }
 
 $('login').onclick = async () => { await api('/api/login', {}).catch(e => toast(e.message)); refresh(); };
@@ -400,7 +497,7 @@ $('quit').onclick = async () => {
 const THEMES = [['', '◐ System'], ['light', '☀︎ Light'], ['dark', '☾ Dark']];
 function showTheme() {
   const t = document.documentElement.dataset.theme || '';
-  const label = THEMES.find(([v]) => v === t)[1];
+  const label = (THEMES.find(([v]) => v === t) || THEMES[0])[1];
   $('theme').textContent = label;
   $('theme').setAttribute('aria-label', 'Theme: ' + label.split(' ')[1] + '. Click to change');
 }
@@ -414,7 +511,8 @@ $('theme').onclick = () => {
 showTheme();
 
 refresh();
-const timer = setInterval(refresh, 2000);
+const timer = setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { dataSignature = ''; refresh(); } });
 </script>
 </body>
 </html>
